@@ -1,77 +1,159 @@
 ﻿using System;
 using System.Collections.Generic;
-
+using GH_IO;
+using GH_IO.Serialization;
+using Grasshopper;
 using Grasshopper.Kernel;
+using Grasshopper.Kernel.Data;
+using Grasshopper.Kernel.Types;
 using Rhino.Geometry;
 
-// In order to load the result of this wizard, you will also need to
-// add the output bin/ folder of this project to the list of loaded
-// folder in Grasshopper.
-// You can use the _GrasshopperDeveloperSettings Rhino command for that.
+
 
 namespace PhysarumSlime
 {
-    public class GHComponent : GH_Component
+    public class SlimeComponent : GH_Component
     {
-        /// <summary>
-        /// Each implementation of GH_Component must provide a public 
-        /// constructor without any arguments.
-        /// Category represents the Tab in which the component will appear, 
-        /// Subcategory the panel. If you use non-existing tab or panel names, 
-        /// new tabs/panels will automatically be created.
-        /// </summary>
-        public GHComponent()
-          : base("PhysarumSlime", "PhysarumSlime",
-              "PhysarumSlime",
-              "PhysarumSlime", "PhysarumSlime")
-        {
-        }
 
-        /// <summary>
-        /// Registers all the input parameters for this component.
-        /// </summary>
+        public SlimeComponent() : base("Slime", "Slime", "Slime", "Slime", "Slime") { }
+
+        private Molde molde;
+
         protected override void RegisterInputParams(GH_Component.GH_InputParamManager pManager)
         {
+
+            pManager.AddPointParameter("Pts", "Pts", "Pts", GH_ParamAccess.list);
+            pManager.AddIntegerParameter("GridXY", "GridXY", "A reasonable value seems to be between 300<1000", GH_ParamAccess.item, 100);
+            pManager.AddNumberParameter("SensorOffset", "SensOffset", "A reasonable value for the sensorOffset seems to be > 0 and <0.1", GH_ParamAccess.item, 0.05);
+            pManager.AddNumberParameter("SensorRotation", "SensRotation", "SensorRotation, typical values are 22.5 or 45", GH_ParamAccess.item, 45);
+            pManager.AddNumberParameter("AgentRotationAngle", "AgeRotAngle", "AgenRotationAngle, typical values are 22.5 or 45", GH_ParamAccess.item, 45);
+            pManager.AddNumberParameter("Time", "Time", "A reasonable value seems to be beetween > 0 and <0.5", GH_ParamAccess.item, 0.05);
+            pManager.AddColourParameter("Colour", "Colour", "Colour for PointCloud", 0, System.Drawing.Color.Aquamarine);
+            pManager.AddIntegerParameter("PointSize", "PtSize", "Pointsize for PointCloud", GH_ParamAccess.item, 1);
         }
 
-        /// <summary>
-        /// Registers all the output parameters for this component.
-        /// </summary>
+
         protected override void RegisterOutputParams(GH_Component.GH_OutputParamManager pManager)
         {
+
         }
 
-        /// <summary>
-        /// This is the method that actually does the work.
-        /// </summary>
-        /// <param name="DA">The DA object can be used to retrieve data from input parameters and 
-        /// to store data in output parameters.</param>
+        #region Display and button
+        //Display
+        protected override void BeforeSolveInstance()
+        {
+            if (_cloud != null)
+                _cloud.Dispose();
+
+            _cloud = new PointCloud();
+            _clippingBox = BoundingBox.Empty;
+        }
+        //Button
+        public override void CreateAttributes()
+        {
+            m_attributes = new CustomAttributes(this);
+        }
+
+        public bool Run;
+
+        #endregion
+
         protected override void SolveInstance(IGH_DataAccess DA)
         {
+
+            #region Get the inputs
+            List<Point3d> pts = new List<Point3d>();
+            if (!DA.GetDataList(0, pts)) return;
+
+            int gridXY = 0;
+            if (!DA.GetData(1, ref gridXY)) return;
+
+
+            double sensorOffset = 0;
+            if (!DA.GetData(2, ref sensorOffset)) return;
+
+            double sensorRotation = 0;
+            if (!DA.GetData(3, ref sensorRotation)) return;
+
+            double agentRotAngle = 0;
+            if (!DA.GetData(4, ref agentRotAngle)) return;
+
+            double time = 0;
+            if (!DA.GetData(5, ref time)) return;
+
+            System.Drawing.Color colour = new System.Drawing.Color();
+            if (!DA.GetData(6, ref colour)) return;
+
+            int ptSize = 0;
+            if (!DA.GetData(7, ref ptSize)) return;
+
+
+            #endregion
+
+            #region Run the simulation
+
+            if (Run || molde == null)
+                molde = new Molde(pts, gridXY, gridXY);
+
+
+            else
+            {
+                molde.SensorOffsetDistance = sensorOffset;
+                molde.SensorRotation = sensorRotation;
+                molde.Time = time;
+                molde.AgentRotAngle = agentRotAngle;
+                _ptSize = ptSize;
+
+                molde.Update();
+
+                var tree = new DataTree<Point3d>();
+
+
+
+                for (int i = 0; i < molde.Agents.Count; i++)
+                    _cloud.AddRange(molde.Trails[i], molde.Colours[i]);
+
+            }
+            #endregion
+
         }
 
-        /// <summary>
-        /// Provides an Icon for every component that will be visible in the User Interface.
-        /// Icons need to be 24x24 pixels.
-        /// </summary>
+
+        #region display
+        private PointCloud _cloud;
+        private BoundingBox _clippingBox;
+        private float _ptSize;
+
+        public override BoundingBox ClippingBox
+        {
+            get { return _clippingBox; }
+        }
+
+
+        public override void DrawViewportWires(IGH_PreviewArgs args)
+        {
+            base.DrawViewportWires(args);
+
+            if (_cloud != null)
+                args.Display.DrawPointCloud(_cloud, _ptSize);
+
+            Plane plane;
+            args.Viewport.GetFrustumFarPlane(out plane);
+
+        }
+
+
+        #endregion
+
         protected override System.Drawing.Bitmap Icon
         {
-            get
-            {
-                // You can add image files to your project resources and access them like this:
-                //return Resources.IconForThisComponent;
-                return null;
-            }
+            get { return null; }
         }
 
-        /// <summary>
-        /// Each component must have a unique Guid to identify it. 
-        /// It is vital this Guid doesn't change otherwise old ghx files 
-        /// that use the old ID will partially fail during loading.
-        /// </summary>
+
         public override Guid ComponentGuid
         {
-            get { return new Guid("6201f93a-525a-47e0-aee1-a756d9d9d30c"); }
+            get { return new Guid("8cdb3632-9d76-486c-99f4-354b6c2200c2"); }
         }
     }
 }
